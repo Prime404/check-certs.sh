@@ -22,7 +22,6 @@ function send_webhook {
   WEBHOOK_URL="webhookurlhere"
   msg_content="Warning: SSL-certificate for $TARGET expires in less than $DAYS days, on $(date -d @$expirationdate '+%Y-%m-%d')" # Content of message that will be sent
   # Use CURL to send webhook
-  echo "$msg_content"
   curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"${msg_content}\"}" "$WEBHOOK_URL"
 }
 
