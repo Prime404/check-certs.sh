@@ -56,7 +56,7 @@ elif ! mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "S
 fi
 
 # Fetch data from database and store it for further use
-domains_from_db="$(mysql -B -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT * from \`${MYSQL_TABLE}\`;" | sort -u | sed 's/\*.//')"
+domains_from_db="$(mysql -N -B -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT * from \`${MYSQL_TABLE}\`;" | sort -u | sed 's/\*.//')"
 
 # Send an e-mail for every domain that expires within 14 days
 for TARGET in $domains_from_db ; do
