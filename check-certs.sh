@@ -8,7 +8,7 @@ MYSQL_HOST="localhost"
 MYSQL_USER="johndoe"
 MYSQL_DB="mydatabase"
 MYSQL_PASS="quads"
-MYSQL_TABLE="mytable" # Table to load domains from, assumes column name is "domain"
+MYSQL_TABLE="mytable" # Table to load domains from
 
 # Define method to send warnings
 WARNING_METHOD="NONE" # NONE, BOTH, WEBHOOK or SMTP
@@ -16,12 +16,12 @@ WARNING_METHOD="NONE" # NONE, BOTH, WEBHOOK or SMTP
 # EMAIL RECIPIENT
 EMAIL_RECIPIENT="myemail@domain.com"
 
-### Alert functions for sending reminders of expiring/expired certificares
 function send_webhook {
-  # WEBHOOK URL (tested with Discord)
-  WEBHOOK_URL="webhookurlhere"
+  # WEBHOOK URL
+  WEBHOOK_URL="url.localdomain.com"
   msg_content="Warning: SSL-certificate for $TARGET expires in less than $DAYS days, on $(date -d @$expirationdate '+%Y-%m-%d')" # Content of message that will be sent
   # Use CURL to send webhook
+  echo "$msg_content"
   curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"${msg_content}\"}" "$WEBHOOK_URL"
 }
 
@@ -34,14 +34,14 @@ function send_smtp {
 
   # Generate message
   read -r -d '' mail_content <<- EOM
-        Hello,
-        This message serves as a notice to inform of that the certificate for $TARGET, expires in less than $DAYS days, on $(date -d @$expirationdate '+%Y-%m-%d').
+	Hello,
+	This message serves as a notice for that the certificate for $TARGET, expires in less than $DAYS days, on $(date -d @$expirationdate '+%Y-%m-%d').
 
-        These e-mails will be sent out till the certificate is renewed or removed from the datasource specified in the script.
+	These e-mails will be sent out till the certificate is renewed or removed from the datasource.
 
-        Yours truly,
-        check-certs.sh on behalf of $(whoami)@$(hostname)
-        EOM
+	Yours truly,
+	ssl_alert.sh on behalf of $(whoami)@$(hostname)
+	EOM
 
   # Send e-mail alert using above SMTP details
   sendEmail -t "$EMAIL_RECIPIENT" -u "Certificate expires soon for $TARGET" -f "$SMTP_USER" -s "$SMTP_HOST" -xu "$SMTP_USER" -xp "$SMTP_PASS" -m "$mail_content" > /dev/null
@@ -59,25 +59,29 @@ fi
 # Fetch data from database and store it for further use
 domains_from_db="$(mysql -B -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT domain from $MYSQL_TABLE;" | sort -u | sed 's/\*.//')"
 
-# Check expiry dates of certificate and send alerts based upon result
+# Send an e-mail for every domain that expires within 14 days
 for TARGET in $domains_from_db ; do
-  DAYS=14;
-  echo "checking if $TARGET expires in less than $DAYS days";
-  expirationdate=$(date -d "$(: | openssl s_client -connect $TARGET:443 -servername $TARGET 2>/dev/null \
-                                | openssl x509 -text \
-                                | grep 'Not After' \
-                                |awk '{print $4,$5,$7}')" '+%s');
-  in7days=$(($(date +%s) + (86400*$DAYS)));
-  if [ $in7days -gt $expirationdate ] ; then
-      echo "KO - Certificate for $TARGET expires in less than $DAYS days, on $(date -d @$expirationdate '+%Y-%m-%d')"
-      if [ "$WARNING_METHOD" == "WEBHOOK" ] ; then
-        send_webhook
-      elif [ "$WARNING_METHOD" == "SMTP" ] ; then
-        send_smtp
-      elif [ "$WARNING_METHOD" == "BOTH" ] ; then
-        send_webhook ; send_smtp
-      fi
+  if [ "$(nc -z -w5 $TARGET 443 >& /dev/null; echo $?)" == "0" ] ; then
+    DAYS=14;
+    echo "checking if $TARGET expires in less than $DAYS days";
+    expirationdate=$(date -d "$(: | openssl s_client -connect $TARGET:443 -servername $TARGET 2>/dev/null \
+                                  | openssl x509 -text \
+                                  | grep 'Not After' \
+                                  | awk '{print $4,$5,$7}')" '+%s');
+    in7days=$(($(date +%s) + (86400*$DAYS)));
+    if [ $in7days -gt $expirationdate ] ; then
+        echo "KO - Certificate for $TARGET expires in less than $DAYS days, on $(date -d @$expirationdate '+%Y-%m-%d')"
+        if [ "$WARNING_METHOD" == "WEBHOOK" ] ; then
+          send_webhook
+        elif [ "$WARNING_METHOD" == "SMTP" ] ; then
+          send_smtp
+        elif [ "$WARNING_METHOD" == "BOTH" ] ; then
+          send_webhook ; send_smtp
+        fi
+    else
+        echo "OK - Certificate expires on $(date -d @$expirationdate '+%Y-%m-%d')";
+    fi
   else
-      echo "OK - Certificate expires on $(date -d @$expirationdate '+%Y-%m-%d')";
-  fi;
+    echo "KO - Domain $TARGET does not resolve to any IP-address, skipping to ensure no errors are reported."
+  fi
 done
