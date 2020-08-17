@@ -21,7 +21,6 @@ function send_webhook {
   WEBHOOK_URL="url.localdomain.com"
   msg_content="Warning: SSL-certificate for $TARGET expires in less than $DAYS days, on $(date -d @$expirationdate '+%Y-%m-%d')" # Content of message that will be sent
   # Use CURL to send webhook
-  echo "$msg_content"
   curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"${msg_content}\"}" "$WEBHOOK_URL"
 }
 
@@ -51,13 +50,13 @@ function send_smtp {
 if ! mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" -e "use $MYSQL_DB;" ; then
   echo "Error: Database does not exist or wrong connection details." >> /dev/stderr
   exit 1; # Exit script to not cause further errors
-elif ! mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT * from $MYSQL_TABLE;" >/dev/null ; then
+elif ! mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT * from \`${MYSQL_TABLE}\`;" >/dev/null ; then
   echo "Error: Table does not exist or wrong connection details specificed." >> /dev/stderr
   exit 2; # Exit script to not cause further errors
 fi
 
 # Fetch data from database and store it for further use
-domains_from_db="$(mysql -B -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT domain from $MYSQL_TABLE;" | sort -u | sed 's/\*.//')"
+domains_from_db="$(mysql -B -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT * from \`${MYSQL_TABLE}\`;" | sort -u | sed 's/\*.//')"
 
 # Send an e-mail for every domain that expires within 14 days
 for TARGET in $domains_from_db ; do
