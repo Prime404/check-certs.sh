@@ -13,6 +13,7 @@ Tested on Debian with the following packages:
 * openssl
 
 ## Features to be added
+* Support for multiple datasources for domains
 * Silent mode
 * Getopts for running against single domains
 * Additional error handling to ensure the script delivers accurate data
