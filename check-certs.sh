@@ -2,35 +2,21 @@
 # check-certs.sh
 # Script that builds on cgmartins work, but with an extensive set of additional features to make it more useful to run as a cronjob.
 
-### Configuration of the script ###
-# Connection details for MySQL Database
-MYSQL_HOST="localhost"
-MYSQL_USER="johndoe"
-MYSQL_DB="mydatabase"
-MYSQL_PASS="quads"
-MYSQL_TABLE="mytable" # Table to load domains from
-
-# Define method to send warnings
-WARNING_METHOD="NONE" # NONE, BOTH, WEBHOOK or SMTP
-
-# EMAIL RECIPIENT
-EMAIL_RECIPIENT="myemail@domain.com"
+# Here we load the .env file containing the settings
+if [ -f .env ] ; then
+  export $(cat .env | sed 's/#.*//g' | xargs)
+else
+  echo "Error: The .env file could not be found, please ensure the file exists and is readable by the user." >> /dev/stderr
+  exit 1; # Exit script to not cause further errors
+fi
 
 function send_webhook {
-  # WEBHOOK URL
-  WEBHOOK_URL="url.localdomain.com"
   msg_content="Warning: SSL-certificate for $TARGET expires in less than $DAYS days, on $(date -d @$expirationdate '+%Y-%m-%d')" # Content of message that will be sent
   # Use CURL to send webhook
-  curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"${msg_content}\"}" "$WEBHOOK_URL"
+  curl -H "Content-Type: application/json" -X POST -d "{\"text\": \"${msg_content}\"}" "$WEBHOOK_URL"
 }
 
 function send_smtp {
-  # SMTP Credentials for e-mail
-  SMTP_HOST="mysmtp.server.com:25"
-  SMTP_USER="email@domain.com"
-  SMTP_PASS="password"
-  SMTP_SENDER="email@domain.com"
-
   # Generate message
   read -r -d '' mail_content <<- EOM
 	Hello,
@@ -49,21 +35,22 @@ function send_smtp {
 # Check if database and table exists before proceeding
 if ! mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" -e "use $MYSQL_DB;" ; then
   echo "Error: Database does not exist or wrong connection details." >> /dev/stderr
-  exit 1; # Exit script to not cause further errors
+  exit 2; # Exit script to not cause further errors
 elif ! mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT * from \`${MYSQL_TABLE}\`;" >/dev/null ; then
   echo "Error: Table does not exist or wrong connection details specificed." >> /dev/stderr
-  exit 2; # Exit script to not cause further errors
+  exit 3; # Exit script to not cause further errors
 fi
 
 # Fetch data from database and store it for further use
-domains_from_db="$(mysql -N -B -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT * from \`${MYSQL_TABLE}\`;" | sort -u | sed 's/\*.//')"
+domains_from_db="$(mysql -N -B -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASS" "$MYSQL_DB" -e "SELECT \`${MYSQL_COL}\` from \`${MYSQL_TABLE}\`;" | sort -u | sed 's/\*.//')"
 
 # Send an e-mail for every domain that expires within 14 days
 for TARGET in $domains_from_db ; do
-  if [ "$(nc -z -w5 $TARGET 443 >& /dev/null; echo $?)" == "0" ] ; then
+  echo $TARGET
+  if [ "$(nc -z -w2 $TARGET 443 >& /dev/null; echo $?)" == "0" ] ; then
     DAYS=14;
     echo "checking if $TARGET expires in less than $DAYS days";
-    expirationdate=$(date -d "$(: | openssl s_client -connect $TARGET:443 -servername $TARGET 2>/dev/null \
+    expirationdate=$(date -d "$(: | timeout --preserve-status 60 openssl s_client -connect $TARGET:443 -servername $TARGET 2>/dev/null \
                                   | openssl x509 -text \
                                   | grep 'Not After' \
                                   | awk '{print $4,$5,$7}')" '+%s');
@@ -71,6 +58,7 @@ for TARGET in $domains_from_db ; do
     if [ $in7days -gt $expirationdate ] ; then
         echo "KO - Certificate for $TARGET expires in less than $DAYS days, on $(date -d @$expirationdate '+%Y-%m-%d')"
         if [ "$WARNING_METHOD" == "WEBHOOK" ] ; then
+          echo Sending webhook
           send_webhook
         elif [ "$WARNING_METHOD" == "SMTP" ] ; then
           send_smtp
